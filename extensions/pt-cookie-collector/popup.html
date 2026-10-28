@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>PT Cookie Collector</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --line: #262b36;
+    --text: #e6e9ef;
+    --muted: #8a93a6;
+    --accent: #4c8dff;
+    --ok: #34d399;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 340px;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 "Microsoft YaHei", system-ui, sans-serif;
+    padding: 14px;
+  }
+  h1 { font-size: 15px; margin-bottom: 2px; }
+  .sub { color: var(--muted); font-size: 11px; margin-bottom: 12px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .site { font-size: 14px; font-weight: 600; word-break: break-all; }
+  .site a { color: var(--accent); text-decoration: none; }
+  .meta { color: var(--muted); font-size: 11px; margin-top: 4px; word-break: break-all; }
+  .count { color: var(--ok); font-weight: 600; }
+  .warn { color: var(--err); font-size: 12px; margin-top: 6px; }
+  .ok { color: var(--ok); font-size: 12px; margin-top: 6px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1;
+    min-width: 96px;
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: #232936; color: var(--text); }
+  button.danger { background: #3a2430; color: var(--err); }
+  #log { margin-top: 8px; color: var(--muted); font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <h1>PT Cookie Collector</h1>
+  <div class="sub">在已登录的 PT 站页面收集完整 Cookie → 导出 JSON → 面板「批量导入」</div>
+
+  <div class="card" id="statusCard">
+    <div id="siteLine">读取当前标签页…</div>
+    <div class="meta" id="metaLine"></div>
+  </div>
+
+  <div class="btns">
+    <button id="collectBtn">收集当前站点</button>
+    <button id="exportBtn" class="ghost">导出全部 JSON</button>
+    <button id="clearBtn" class="danger">清除记录</button>
+  </div>
+  <div id="log"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+services:
+  nas-nav:
+    build: .
+    image: nas-nav:1.0.52
+    container_name: nas-nav
+    # 让容器内的进程能访问挂载进来的 docker.sock。
+    # 宿主机 docker 组的 GID 用 `getent group docker | cut -d: -f3` 查，填到 DOCKER_GID。
+    # 群晖/飞牛等 NAS 通常不是 999/998，必须按实际值配置。
+    group_add:
+      - "${DOCKER_GID:-994}"
+    ports:
+      # 左侧宿主机端口可按需修改（默认 8080，可用环境变量 APP_PORT 覆盖）
+      # 右侧 8080 为容器内端口，请勿改动
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      # 配置持久化：宿主机 ./config 目录存放所有配置（含下载器/站点凭证）
+      - ./config:/app/config
+      # 宿主系统监控（只读挂载）：CPU/内存/磁盘/网络，只读不写宿主机
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+      # Docker 容器监控：暴露宿主机 Docker socket
+      # 只读查看不需要额外权限；若要在面板里启停容器（设置页勾选「允许容器启停」）
+      # 这个挂载就等于把宿主机 root 权限交给了容器，请自行评估后再开
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      - CONFIG_DIR=/app/config
+      # 访问令牌：留空 = 不启用认证（仅局域网使用）
+      # 设置为任意长口令后，所有页面/接口都需要先输入该令牌
+      # 做了端口映射或反代时强烈建议设置
+      - ACCESS_TOKEN=${ACCESS_TOKEN:-}
+      # 全局放宽 TLS 证书校验（不推荐）：默认只对内网/私有地址放宽
+      - ALLOW_INSECURE_TLS=${ALLOW_INSECURE_TLS:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

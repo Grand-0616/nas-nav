@@ -1,0 +1,11 @@
+node_modules/
+npm-debug.log*
+.git/
+.gitignore
+*.md
+_shots/
+config/
+config.*.json
+extensions/
+tools/
+docker-compose.yml

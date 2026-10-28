@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0e1116">
+  <title>NAS 导航监控助手</title>
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css?v=1.0.52">
+</head>
+<body>
+  <div class="app">
+    <!-- 侧边栏 (PC) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/favicon-64.png" alt="NAS 导航">
+        <div class="brand-text">
+          <div class="brand-name">NAS 导航</div>
+          <div class="brand-sub">监控助手 v1.0</div>
+        </div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-item" data-view="home">
+          <span class="side-icon">▣</span><span>首页</span>
+        </a>
+        <a class="side-item" data-view="apps">
+          <span class="side-icon">▤</span><span>服务</span>
+        </a>
+        <a class="side-item" data-view="servers">
+          <span class="side-icon">⇅</span><span>下载器</span>
+        </a>
+        <a class="side-item" data-view="sites">
+          <span class="side-icon">▣</span><span>站点</span>
+        </a>
+        <a class="side-item" data-view="moviepilot">
+          <span class="side-icon">🎬</span><span>MoviePilot</span>
+        </a>
+        <a class="side-item" data-view="settings">
+          <span class="side-icon">⚙</span><span>设置</span>
+        </a>
+      </nav>
+      <div class="sidebar-foot">数据仅存于本机 · Docker 自托管</div>
+    </aside>
+
+    <!-- 主区域-->
+    <main class="main">
+      <header class="topbar">
+        <h1 class="page-title" id="pageTitle">服务导航</h1>
+        <div class="topbar-right">
+          <span class="refresh-hint" id="refreshHint"></span>
+          <button class="status-pill" id="netToggle" onclick="toggleNetMode()" title="切换服务访问地址：内网 / 外网">内网</button>
+          <button class="status-pill" id="connPill" onclick="openConnPanel()" title="查看各服务连接状态">▣ 本地</button>
+        </div>
+      </header>
+
+      <!-- 首页视图：欢迎 + 系统监控 + Docker 监控 + 影视墙 -->
+      <section class="view" id="view-home">
+        <div id="homeHero" class="home-hero">
+          <div class="hero-greet" id="homeGreet">晚上好</div>
+          <div class="hero-clock" id="homeClock">--:--:--</div>
+          <div class="hero-date" id="homeDate">----年--月--日 星期-</div>
+        </div>
+        <div id="homeMonitor" class="home-monitor"></div>
+        <div id="homeDocker"></div>
+        <div id="homeMedia"></div>
+      </section>
+
+      <!-- 服务视图：服务导航卡片 + 自动发现 -->
+      <section class="view hidden" id="view-apps">
+        <div class="page-toolbar">
+          <input id="svcSearch" class="toolbar-search" type="text" placeholder="搜索服务…" autocomplete="off">
+          <button class="btn btn-primary" id="svcDiscoverBtn">🔍 发现服务</button>
+          <button class="btn" id="svcAddBtn">+ 新增服务</button>
+          <span class="toolbar-hint">卡片右上角 ⚙ 编辑 / 删除</span>
+        </div>
+        <div id="servicesContent"></div>
+      </section>
+
+      <!-- 下载器视图 -->
+      <section class="view hidden" id="view-servers">
+        <div class="page-toolbar">
+          <button class="btn btn-primary" id="dlAddBtn">+ 添加下载器</button>
+          <span class="toolbar-hint">卡片右上角 ⚙ 编辑 / 删除</span>
+        </div>
+        <div class="stats-grid" id="serverStats"></div>
+        <div class="card-grid" id="serverCards"></div>
+      </section>
+
+      <!-- 站点视图 -->
+      <section class="view hidden" id="view-sites">
+        <div class="page-toolbar">
+          <button class="btn btn-primary" id="siteAddBtn">+ 添加站点</button>
+          <button class="btn" id="siteImportBtn">批量导入</button>
+          <button class="btn" id="siteSortBtn">整理排序</button>
+          <span class="toolbar-hint" id="siteSortHint">点「整理排序」后拖动卡片调整顺序，自动保存</span>
+        </div>
+        <div class="stats-grid" id="siteStats"></div>
+        <div class="site-group-bar" id="siteGroups"></div>
+        <div class="card-grid" id="siteCards"></div>
+      </section>
+
+      <!-- MoviePilot 独立页：未配置引导 / 看板 + 搜索订阅 + 插件 -->
+      <section class="view hidden" id="view-moviepilot">
+        <div id="mpPage"></div>
+      </section>
+
+      <!-- 设置视图（分区 Tab：服务 / 系统设置 / 主题 / 备份恢复） -->
+      <section class="view hidden" id="view-settings">
+        <div class="settings-tabs">
+          <button class="tab-btn active" data-tab="system">系统设置</button>
+          <button class="tab-btn" data-tab="theme">主题</button>
+          <button class="tab-btn" data-tab="backup">备份恢复</button>
+        </div>
+
+        <!-- 系统设置：刷新间隔 / 飞牛影视 / Docker 监控 -->
+        <div class="settings-pane hidden" id="pane-system">
+          <div class="settings-global">
+            <div class="settings-global-title">常用设置</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label>下载器刷新间隔（秒）</label><input id="f_dlRefresh" type="number" min="5" max="300" step="1" placeholder="15"></div>
+              <div class="form-field"><label>站点刷新间隔（秒）</label><input id="f_siteRefresh" type="number" min="10" max="600" step="1" placeholder="60"><span class="hint">站点页自动刷新频率，默认 60 秒</span></div>
+              <div class="form-field"><label>站点数据缓存时长（秒）</label><input id="f_siteCacheSec" type="number" min="30" max="3600" step="10" placeholder="300"><span class="hint">PT 站数据不频繁变化，缓存期内刷新页面/切换/保存都不会真实访问站点，默认 300 秒</span></div>
+            </div>
+            <span class="hint">下载器默认 15 秒、站点默认 60 秒。改小刷新更快，但会增加下载器 API 请求频率，建议下载器不小于 5 秒。站点与下载器的添加 / 编辑 / 删除已移至各自页面。</span>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">飞牛影视（首页影视墙）</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label>启用</label><label class="switch"><input type="checkbox" id="f_mediaEnabled"><span class="slider"></span></label></div>
+              <div class="form-field full"><label>访问地址</label><input id="f_mediaUrl" placeholder="http://192.168.50.20:5666" autocomplete="off"></div>
+              <div class="form-field"><label>用户名</label><input id="f_mediaUser" placeholder="1556707096" autocomplete="off"></div>
+              <div class="form-field"><label>密码</label><input id="f_mediaPass" type="password" placeholder="填写新密码；已配置可留空" autocomplete="off"></div>
+            </div>
+            <span class="hint">填写飞牛影视（fnOS 影视）Web 地址与账号。首页影视墙将显示媒体库统计、继续观看与海报墙。凭证仅保存在 NAS 本地配置文件。修改后自动保存生效。</span>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">Docker 容器监控</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label>启用</label><label class="switch"><input type="checkbox" id="f_dockerEnabled"><span class="slider"></span></label></div>
+              <div class="form-field full"><label>Docker API 地址（留空 = 本机 unix socket）</label><input id="f_dockerUrl" placeholder="留空使用 /var/run/docker.sock，远程可填 http://内网IP:2375" autocomplete="off"></div>
+              <div class="form-field"><label>允许容器启停</label><label class="switch"><input type="checkbox" id="f_dockerAllowActions"><span class="slider"></span></label></div>
+            </div>
+            <span class="hint" style="color:var(--red,#ef4444)">「允许容器启停」默认关闭。开启后首页容器卡片会出现 启动 / 停止 / 重启 / 暂停 按钮——停止容器会中断该容器提供的服务，请确认后果后再开启。</span>
+            <div class="docker-comp-list" id="dockerCompList">
+            <div class="docker-note">启用 Docker 容器监控后，这里可配置首页显示哪些 Docker 组件及其顺序。</div>
+            </div>
+            <span class="hint">首页「系统监控」下方按此处顺序显示所选组件：健康总览（运行 / 停止 / 异常）、资源占用 Top、网络流量 Top（实时收发速率）、容器列表（全部容器状态）。打开「编辑」可重新勾选与排序；组件数据来自 Docker Engine API，需挂载 docker.sock 或提供可访问的 Docker API 地址。</span>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">MoviePilot（首页深度看板）</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label>启用</label><label class="switch"><input type="checkbox" id="f_mpEnabled"><span class="slider"></span></label></div>
+              <div class="form-field full"><label>访问地址</label><input id="f_mpUrl" placeholder="http://192.168.50.20:3001" autocomplete="off"><span class="hint">MoviePilot 的 Web 访问地址</span></div>
+              <div class="form-field"><label>API Token</label><input id="f_mpToken" type="password" placeholder="填写新 Token；已配置可留空" autocomplete="off"></div>
+              <div class="form-field"><label>连接测试</label><button class="btn-mini" id="btnMpTest">测试连接</button><span class="mp-test-result" id="mpTestResult"></span></div>
+            </div>
+            <span class="hint">「MoviePilot」独立页展示媒体库统计、下载器汇总、系统资源、存储与订阅概况，支持搜索影视资源一键订阅、查看已安装插件。API Token 在 MoviePilot 的「设置 - 服务」中获取；填写后点保存即可生效。插件列表缓存 10 分钟，可手动刷新。所有凭证仅保存在 NAS 本地配置文件。</span>
+          </div>
+        </div>
+
+        <!-- 主题：模式 + 强调色 + 密度 + 圆角 + 背景 + 动效 -->
+        <div class="settings-pane hidden" id="pane-theme">
+          <div class="settings-global">
+            <div class="settings-global-title">主题外观</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label>主题模式</label>
+                <div class="seg" id="themeModeSeg">
+                  <button class="seg-btn" data-mode="dark">深色</button>
+                  <button class="seg-btn" data-mode="light">浅色</button>
+                </div>
+              </div>
+              <div class="form-field"><label>强调色</label>
+                <div class="swatches" id="themeSwatches">
+                  <span class="swatch" data-color="#4ea1ff" style="background:#4ea1ff"></span>
+                  <span class="swatch" data-color="#a855f7" style="background:#a855f7"></span>
+                  <span class="swatch" data-color="#f59e0b" style="background:#f59e0b"></span>
+                  <span class="swatch" data-color="#34d399" style="background:#34d399"></span>
+                  <span class="swatch" data-color="#ec4899" style="background:#ec4899"></span>
+                  <input type="color" id="themeAccentCustom" class="swatch-custom" value="#4ea1ff" title="自定义颜色">
+                </div>
+                <span class="hint">点击预设或直接用取色器选自定义颜色</span>
+              </div>
+            </div>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">界面布局</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label>界面密度</label>
+                <div class="seg" id="themeDensitySeg">
+                  <button class="seg-btn" data-density="compact">紧凑</button>
+                  <button class="seg-btn" data-density="normal">标准</button>
+                  <button class="seg-btn" data-density="comfort">舒适</button>
+                </div>
+              </div>
+            <div class="form-field"><label>卡片圆角</label>
+                <div class="seg" id="themeRadiusSeg">
+                  <button class="seg-btn" data-radius="small">小</button>
+                  <button class="seg-btn" data-radius="medium">中</button>
+                  <button class="seg-btn" data-radius="large">大</button>
+                </div>
+              </div>
+              <div class="form-field"><label>背景风格</label>
+                <div class="seg" id="themeBgSeg">
+                  <button class="seg-btn" data-bg="gradient">渐变</button>
+                  <button class="seg-btn" data-bg="glass">毛玻璃</button>
+                </div>
+              </div>
+              <div class="form-field"><label>动效</label>
+                <div class="seg" id="themeAnimSeg">
+                  <button class="seg-btn" data-anim="on">开启</button>
+                  <button class="seg-btn" data-anim="off">关闭</button>
+                </div>
+              </div>
+            </div>
+            <span class="hint">主题所有设置立即生效并自动保存；只影响本面板界面，不影响数据。</span>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">背景图片</div>
+            <div class="settings-global-grid">
+              <div class="form-field full">
+                <label>自定义背景（URL 或本地上传）</label>
+                <div class="bg-image-row">
+                  <input id="f_themeBgImage" type="text" placeholder="https://… 或上传本地图片" spellcheck="false">
+                  <button class="btn" id="btnBgUpload" title="上传本地图片作为背景">上传</button>
+                  <button class="btn btn-danger btn-sm" id="btnBgClear" title="清除自定义背景">清除</button>
+                  <input type="file" id="bgFileInput" accept="image/*" hidden>
+                </div>
+                <span class="hint" id="themeBgUploadedHint" hidden>当前使用的是本地上传的背景图（存放在 NAS 的 config 目录，不占配置文件体积）</span>
+                <span class="hint">上传的图片会自动压缩后单独保存在 NAS 上（不再塞进 config.json）；设了背景图片后自动叠加半透明遮罩保证文字可读。清除后恢复默认渐变。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 备份恢复 -->
+        <div class="settings-pane hidden" id="pane-backup">
+          <div class="settings-global">
+            <div class="settings-global-title">数据备份与恢复</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><button class="btn btn-primary" id="btnBackup">⬇ 导出配置备份</button>
+                <span class="hint" style="margin-left:8px">下载完整配置（含全部站点 / 下载器 / 飞牛凭证）到本地保存</span></div>
+              <div class="form-field"><button class="btn" id="btnRestore">⬆ 从备份恢复</button>
+                <span class="hint" style="margin-left:8px">选择之前导出的 .json 备份文件恢复；恢复前自动备份当前配置</span>
+                <input type="file" id="restoreFile" accept=".json,application/json" style="display:none"></div>
+            </div>
+            <span class="hint" id="backupHint">备份文件只应保存在你自己的设备 / NAS 上，不要上传到任何公开位置。</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部 Tab (手机) -->
+    <nav class="bottom-nav">
+      <a class="bottom-item active" data-view="home"><span class="b-icon">▣</span><span>首页</span></a>
+      <a class="bottom-item" data-view="apps"><span class="b-icon">▤</span><span>服务</span></a>
+      <a class="bottom-item" data-view="servers"><span class="b-icon">⇅</span><span>下载器</span></a>
+      <a class="bottom-item" data-view="sites"><span class="b-icon">▣</span><span>站点</span></a>
+      <a class="bottom-item" data-view="moviepilot"><span class="b-icon">🎬</span><span>MP</span></a>
+      <a class="bottom-item" data-view="settings"><span class="b-icon">⚙</span><span>设置</span></a>
+    </nav>
+  </div>
+
+  <!-- 服务自动发现弹窗 -->
+  <div class="modal-mask hidden" id="discoverMask">
+    <div class="modal modal-lg">
+      <div class="modal-head">
+        <h3>发现服务</h3>
+        <button class="modal-close" id="discoverClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="discover-hint" id="discoverHint">正在扫描…</div>
+        <div class="discover-list" id="discoverList"></div>
+      </div>
+      <div class="modal-foot">
+        <span class="modal-msg" id="discoverMsg"></span>
+        <span class="flex-spacer"></span>
+        <button class="btn" id="discoverCancel">取消</button>
+        <button class="btn btn-primary" id="discoverImport">导入勾选</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑弹窗 -->
+  <div class="modal-mask hidden" id="modalMask">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">新增</h3>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot">
+        <button class="btn btn-danger" id="modalDelete" hidden>删除</button>
+        <button class="btn" id="modalTest" hidden>测试连接</button>
+        <span class="modal-msg" id="modalMsg"></span>
+        <span class="flex-spacer"></span>
+        <button class="btn" id="modalCancel">取消</button>
+        <button class="btn btn-primary" id="modalSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- 访问令牌登录层（仅当服务端设置 ACCESS_TOKEN 时出现） -->
+  <div class="auth-mask hidden" id="authMask">
+    <div class="auth-card">
+      <img class="auth-logo" src="/favicon.png" alt="">
+      <div class="auth-title">NAS 导航</div>
+      <div class="auth-sub">该面板已开启访问保护，请输入访问令牌</div>
+      <input class="auth-input" id="authToken" type="password" placeholder="访问令牌" autocomplete="current-password" spellcheck="false">
+      <button class="btn btn-primary auth-btn" id="authSubmit">进入面板</button>
+      <div class="auth-msg" id="authMsg"></div>
+    </div>
+  </div>
+
+  <script src="js/api.js?v=1.0.52"></script>
+  <script src="js/app.js?v=1.0.52"></script>
+</body>
+</html>

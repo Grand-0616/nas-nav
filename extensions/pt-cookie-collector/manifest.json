@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "PT Cookie Collector（PT站点Cookie收集器）",
+  "version": "1.0.1",
+  "description": "在你已登录的 PT 站点页面上收集完整 Cookie（含 httpOnly），一键导出 JSON 供 NAS 导航面板批量导入。",
+  "minimum_chrome_version": "100",
+  "permissions": ["cookies", "tabs", "storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_title": "PT Cookie Collector",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
