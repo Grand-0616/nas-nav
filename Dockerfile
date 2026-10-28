@@ -11,6 +11,11 @@ RUN npm ci --omit=dev --no-audit --no-fund
 COPY server/ ./
 COPY public/ ./public/
 
+# 用 scp / rsync 从 Windows 或严格 umask 的环境传上来的目录常是 drwx------，
+# COPY 会把这个权限原样带进镜像；进程降权到 node 用户后就读不到静态文件，
+# 表现为页面能开但 /js/app.js 返回 EACCES。这里统一放宽为「所有人可读、目录可进入」。
+RUN chmod -R a+rX /app/public
+
 # 降权运行需要 su-exec；保留 --group-add 附加组需要完整版 setpriv
 # （Alpine 自带的 /usr/bin/setpriv 是 BusyBox 版，不支持 --reuid/--regid/--groups）
 RUN apk add --no-cache su-exec util-linux \
