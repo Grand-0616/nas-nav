@@ -87,6 +87,7 @@ function switchView(view) {
 async function renderHome() {
   renderHomeHero();        // 欢迎语 + 时钟 + 日期
   renderHomeMonitor();     // 系统监控卡（异步回填，不阻塞）
+  renderHomeTrend();       // 历史趋势曲线（异步回填，不阻塞）
   renderHomeDocker();      // Docker 容器监控（异步回填，不阻塞）
   renderHomeMedia();       // 飞牛影视墙（异步回填，不阻塞）
 }
@@ -568,14 +569,16 @@ const DOCKER_COMPS = [
 ];
 function dockerCompOrder() {
   const cfg = ((state.config || {}).docker || {}).homeComps;
-  if (Array.isArray(cfg) && cfg.length) {
-    // 只保留仍存在的组件 id，并把默认组件里缺失的补到末尾
-    const def = DOCKER_COMPS.map(c => c.id);
-    const have = cfg.filter(id => def.includes(id));
-    for (const id of def) if (!have.includes(id)) have.push(id);
-    return have;
+  // 从未配置过 → 默认全开；配置过就严格按配置来（允许为空，表示首页不显示 Docker 区块）。
+  // 早期版本这里会把缺失的组件 id 自动补回列表，导致「取消勾选」永远无效——
+  // 开关刚点掉，loadDockerCompList() 重绘时又被补回来，看起来就是「按钮没用」。
+  if (!Array.isArray(cfg)) return DOCKER_COMPS.map(c => c.id);
+  const def = DOCKER_COMPS.map(c => c.id);
+  const out = [];
+  for (const id of cfg) {
+    if (def.includes(id) && !out.includes(id)) out.push(id);
   }
-  return DOCKER_COMPS.map(c => c.id);
+  return out;
 }
 
 /* 首页 Docker：按配置的组件顺序渲染（健康总览 / 资源 Top / 网络 Top / 容器列表） */
@@ -1424,6 +1427,35 @@ function renderSettings() {
   if (mpt) mpt.value = '';
   const mpr = $('#mpTestResult');
   if (mpr) mpr.textContent = '';
+  // 历史采样回填
+  const hs = state.config.history || {};
+  const he = $('#f_historyEnabled'); if (he) he.checked = hs.enabled !== false;
+  const hi = $('#f_historyInterval'); if (hi) hi.value = hs.intervalMin || 60;
+  const hk = $('#f_historyKeepDays'); if (hk) hk.value = hs.keepDays || 30;
+  // 告警规则回填
+  const al = state.config.alerts || {};
+  const ae = $('#f_alertsEnabled'); if (ae) ae.checked = !!al.enabled;
+  const ao = $('#f_alertOfflineTimes'); if (ao) ao.value = al.siteOfflineTimes != null ? al.siteOfflineTimes : 2;
+  const ar = $('#f_alertRatioMin'); if (ar) ar.value = al.ratioMin != null ? al.ratioMin : 0;
+  const ad = $('#f_alertDiskMax'); if (ad) ad.value = al.diskPctMax != null ? al.diskPctMax : 90;
+  const ac = $('#f_alertContainer'); if (ac) ac.checked = al.containerAbnormal !== false;
+  const ap = $('#f_alertRepeatMin'); if (ap) ap.value = al.repeatMin || 180;
+  // 通知渠道：凭证类字段服务端只回 ******，输入框一律留空，用户不填就不提交（后端保留旧值）
+  const ch = al.channels || {};
+  const chOn = (id, name) => { const e = $(id); if (e) e.checked = !!(ch[name] && ch[name].enabled); };
+  chOn('#f_barkEnabled', 'bark');
+  chOn('#f_tgEnabled', 'telegram');
+  chOn('#f_wecomEnabled', 'wecom');
+  chOn('#f_webhookEnabled', 'webhook');
+  const bu = $('#f_barkUrl'); if (bu) bu.value = '';
+  const tt = $('#f_tgToken'); if (tt) tt.value = '';
+  const tc = $('#f_tgChatId'); if (tc) tc.value = (ch.telegram && ch.telegram.chatId) || '';
+  const ww = $('#f_wecomWebhook'); if (ww) ww.value = '';
+  const wu = $('#f_webhookUrl'); if (wu) wu.value = '';
+  const wm = $('#f_webhookMethod'); if (wm) wm.value = (ch.webhook && ch.webhook.method) === 'PUT' ? 'PUT' : 'POST';
+  const atr = $('#alertTestResult'); if (atr) atr.textContent = '';
+  const sres = $('#sampleResult'); if (sres) sres.textContent = '';
+  loadAlertEvents();
   // 标记：设置页表单已按真实配置回填，此后 autoSave 才能安全读取这些 DOM 值
   state.settingsReady = true;
   // Docker 首页组件配置（异步加载，不阻塞设置页）
@@ -1531,6 +1563,363 @@ function resetDockerComps() {
   autoSave(true);
   loadDockerCompList();
   showToast('已恢复默认组件顺序');
+}
+
+/* 开关「启用 Docker 监控」：立刻同步本地状态并重绘组件配置区，再保存，最后探测一次连接。
+   以前这里只挂了一个 600ms 防抖保存，页面上什么都不会变（组件配置区仍是「启用后…」提示），
+   用户看起来就是"开关点了没用"，必须切走再切回设置页才更新。 */
+async function applyDockerEnabled(enabled) {
+  enabled = !!enabled;
+  if (!state.config.docker) state.config.docker = {};
+  state.config.docker.enabled = enabled;
+  loadDockerCompList();            // 组件列表立刻按新状态重绘，不等保存
+  clearTimeout(autoSave._t);
+  await autoSave(true);            // 开关是一次性动作，不做防抖
+  if (!enabled) {
+    showToast('已关闭 Docker 监控：首页不再显示容器信息');
+    return;
+  }
+  // 启用后探测一次，把「开关没生效」和「Docker 连不上」两种情况区分开，
+  // 否则 NAS 上没挂 docker.sock 时用户只会看到开关拨过去了却什么也没发生。
+  let d = null;
+  try { d = await API.getDockerContainers(); } catch (e) { d = null; }
+  if (!d || !d.ok) {
+    showToast('已启用 Docker 监控，但接口调用失败：' + ((d && d.error) || '未知错误'));
+  } else if (!d.connected) {
+    showToast('已启用 Docker 监控，但连不上 Docker：' + (d.error || '未找到 docker.sock'));
+  } else {
+    showToast('已启用 Docker 监控，发现 ' + ((d.items || []).length) + ' 个容器');
+  }
+}
+
+/* ===== 历史趋势 + 告警中心 ===== */
+
+/* 手动采样一次：立刻写一条历史快照（不等定时器） */
+async function sampleHistoryNow() {
+  const out = $('#sampleResult');
+  const btn = $('#btnSampleNow');
+  if (btn) btn.disabled = true;
+  if (out) out.textContent = '采样中…';
+  try {
+    const r = await API.sampleNow();
+    if (r && r.ok) {
+      if (out) out.textContent = '已采样 ' + ((r.result && r.result.siteCount) || 0) + ' 个站点';
+      showToast('历史采样完成');
+    } else {
+      const why = (r && r.result && r.result.reason) || (r && r.error) || '未知错误';
+      if (out) out.textContent = '失败：' + why;
+    }
+  } catch (e) {
+    if (out) out.textContent = '失败：' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* 测试通知：向所有已勾选渠道推一条测试消息 */
+async function testAlertChannels() {
+  const out = $('#alertTestResult');
+  const btn = $('#btnAlertTest');
+  if (btn) btn.disabled = true;
+  if (out) out.textContent = '发送中…';
+  try {
+    const r = await API.testAlert();
+    if (r && r.ok) {
+      if (out) out.textContent = '已发送';
+      showToast('测试通知已发送（' + ((r.results || []).length) + ' 个渠道）');
+    } else {
+      if (out) out.textContent = '失败：' + ((r && r.error) || '未知错误');
+    }
+  } catch (e) {
+    if (out) out.textContent = '失败：' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* 立即检查：按当前规则跑一次判定。告警未启用时后端走 dryRun，只列出命中项不推送 */
+async function checkAlertsNow() {
+  const out = $('#alertTestResult');
+  const btn = $('#btnAlertCheck');
+  if (btn) btn.disabled = true;
+  if (out) out.textContent = '检查中…';
+  try {
+    const r = await API.checkAlerts();
+    if (!r || !r.ok) {
+      if (out) out.textContent = '失败：' + ((r && r.error) || '未知错误');
+      return;
+    }
+    const hits = r.hits || [];
+    if (!hits.length) {
+      if (out) out.textContent = '未命中任何告警规则';
+    } else {
+      if (out) out.textContent = '命中 ' + hits.length + ' 项' + (r.enabled ? '，已按规则推送' : '（告警未启用，仅预览）');
+      showToast('命中 ' + hits.length + ' 项告警规则');
+    }
+    loadAlertEvents();
+  } catch (e) {
+    if (out) out.textContent = '失败：' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* 清空告警去重状态与事件列表 */
+async function resetAlertState() {
+  if (!window.confirm('清空告警状态？\n\n将清除同一问题的去重记录与事件列表，之后同一问题会重新推送一次。')) return;
+  try {
+    await API.resetAlerts();
+    showToast('告警状态已清空');
+    loadAlertEvents();
+  } catch (e) {
+    showToast('清空失败：' + e.message);
+  }
+}
+
+/* 告警事件列表（服务端环形缓冲，最近 100 条） */
+async function loadAlertEvents() {
+  const box = $('#alertEvents');
+  if (!box) return;
+  let r = null;
+  try {
+    r = await API.getAlertEvents();
+  } catch (e) {
+    box.innerHTML = '<div class="docker-note">告警事件读取失败：' + esc(e.message) + '</div>';
+    return;
+  }
+  const items = (r && r.items) || [];
+  if (!items.length) {
+    box.innerHTML = '<div class="docker-note">暂无告警事件。启用告警并配置通知渠道后，站点离线、分享率过低、磁盘水位、容器异常都会记录在这里。</div>';
+    return;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  box.innerHTML = '<div class="alert-events-title">最近告警事件（' + items.length + '）</div>'
+    + items.map(it => {
+      const d = it.at ? new Date(it.at) : null;
+      const ts = d && !isNaN(d.getTime())
+        ? (d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+        : '';
+      const recovery = it.type === 'recover';
+      const chs = (it.channels || []).map(c => c.channel + (c.ok ? '✓' : '✗')).join(' ');
+      return '<div class="alert-event' + (recovery ? ' ok' : '') + '">'
+        + '<span class="alert-event-time">' + esc(ts) + '</span>'
+        + '<span class="alert-event-title">' + esc(it.title || '') + '</span>'
+        + '<span class="alert-event-detail">' + esc(it.detail || '') + '</span>'
+        + (chs ? '<span class="alert-event-ch">' + esc(chs) + '</span>' : '')
+        + '</div>';
+    }).join('');
+}
+
+/* ===== 首页历史趋势图（Canvas 手绘，零依赖） ===== */
+const TREND_RANGES = [1, 7, 30];
+
+function trendState() {
+  if (!state._trend) state._trend = { days: 7, loading: false };
+  return state._trend;
+}
+
+async function renderHomeTrend() {
+  const box = $('#homeTrend');
+  if (!box) return;
+  const cfg = state.config || {};
+  const h = cfg.history || {};
+  if (h.enabled === false) { box.innerHTML = ''; return; }
+  const ts = trendState();
+  if (ts.loading) return;
+  ts.loading = true;
+  let r = null;
+  try {
+    r = await API.getHistory(ts.days);
+  } catch (e) {
+    box.innerHTML = '<div class="trend-card"><div class="trend-head"><span class="trend-title">历史趋势</span></div>'
+      + '<div class="docker-note">读取失败：' + esc(e.message) + '</div></div>';
+    ts.loading = false;
+    return;
+  }
+  ts.loading = false;
+  if (!r || !r.ok) {
+    box.innerHTML = '<div class="trend-card"><div class="trend-head"><span class="trend-title">历史趋势</span></div>'
+      + '<div class="docker-note">读取失败：' + esc((r && r.error) || '未知错误') + '</div></div>';
+    return;
+  }
+  const pts = r.points || [];
+  const tabs = TREND_RANGES.map(d =>
+    '<button class="trend-tab' + (d === ts.days ? ' active' : '') + '" data-days="' + d + '">' + d + ' 天</button>'
+  ).join('');
+  if (!pts.length) {
+    box.innerHTML = '<div class="trend-card">'
+      + '<div class="trend-head"><span class="trend-title">历史趋势</span><span class="trend-tabs">' + tabs + '</span></div>'
+      + '<div class="docker-note">还没有历史数据。采样间隔 ' + (r.intervalMin || 60) + ' 分钟，服务启动 30 秒后会先采一次，也可以在「设置 - 历史趋势」里点「采样一次」。</div>'
+      + '</div>';
+    bindTrendTabs(box);
+    return;
+  }
+  box.innerHTML = '<div class="trend-card">'
+    + '<div class="trend-head">'
+    + '<span class="trend-title">历史趋势</span>'
+    + '<span class="trend-meta">' + pts.length + ' 个点' + (r.buckets > 1 ? '（' + r.buckets + ' 条聚合）' : '') + ' · 保留 ' + (r.keepDays || 30) + ' 天</span>'
+    + '<span class="trend-tabs">' + tabs + '</span>'
+    + '</div>'
+    + '<div class="trend-charts">'
+    + '<div class="trend-chart"><div class="trend-chart-title">系统占用</div><canvas data-kind="sys"></canvas></div>'
+    + '<div class="trend-chart"><div class="trend-chart-title">传输速率</div><canvas data-kind="net"></canvas></div>'
+    + '</div>'
+    + '<div class="trend-legend">'
+    + '<span class="lg lg-cpu">CPU</span><span class="lg lg-mem">内存</span><span class="lg lg-disk">磁盘</span>'
+    + '<span class="lg lg-dl">下载</span><span class="lg lg-ul">上传</span>'
+    + '</div>'
+    + '</div>';
+  bindTrendTabs(box);
+  const sysCv = box.querySelector('canvas[data-kind="sys"]');
+  const netCv = box.querySelector('canvas[data-kind="net"]');
+  if (sysCv) drawTrend(sysCv, pts, [
+    { key: 'cpu', color: cssVar('--accent', '#4ea1ff'), max: 100, unit: '%' },
+    { key: 'mem', color: cssVar('--green', '#22c55e'), max: 100, unit: '%' },
+    { key: 'disk', color: cssVar('--orange', '#f59e0b'), max: 100, unit: '%' }
+  ]);
+  if (netCv) drawTrend(netCv, pts, [
+    { key: 'dl', color: cssVar('--accent', '#4ea1ff'), unit: '/s', fmt: v => fmtSpeed(v) },
+    { key: 'ul', color: cssVar('--green', '#22c55e'), unit: '/s', fmt: v => fmtSpeed(v) }
+  ]);
+}
+
+function bindTrendTabs(box) {
+  box.querySelectorAll('.trend-tab').forEach(b => {
+    b.onclick = () => {
+      const d = parseInt(b.dataset.days, 10);
+      if (!d || d === trendState().days) return;
+      trendState().days = d;
+      renderHomeTrend();
+    };
+  });
+}
+
+function cssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+/* 把一条序列画成折线。max 缺省时按数据自适应；只有 1 个点时画成圆点 */
+function drawTrend(canvas, pts, series) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || canvas.parentElement.clientWidth || 520;
+  const cssH = 132;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  const g = canvas.getContext('2d');
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, cssW, cssH);
+  const padL = 34, padR = 8, padT = 10, padB = 16;
+  const w = Math.max(1, cssW - padL - padR);
+  const h = Math.max(1, cssH - padT - padB);
+  // 数据范围
+  let maxV = 0;
+  for (const s of series) {
+    if (s.max) { maxV = Math.max(maxV, s.max); continue; }
+    for (const p of pts) {
+      const v = Number(p[s.key]);
+      if (Number.isFinite(v)) maxV = Math.max(maxV, v);
+    }
+  }
+  // 速率图在完全空闲时（下载/上传都是 0）如果没有保底量级，刻度会缩成 1/0/0 这种无意义数字，
+  // 所以这里按 1 MB/s 画，至少能看出「确实是空的」而不是「图画坏了」。
+  if (!maxV || maxV <= 0) maxV = series.some(s => s.unit === '/s') ? 1048576 : 1;
+  // 固定上限的序列（百分比）不参与自适应放大
+  const fixedMax = series.find(s => s.max);
+  const scaleMax = fixedMax ? fixedMax.max : maxV * 1.15;
+  // 网格 + Y 轴刻度
+  g.strokeStyle = cssVar('--border', 'rgba(255,255,255,.1)');
+  g.lineWidth = 1;
+  g.font = '10px system-ui, sans-serif';
+  g.fillStyle = cssVar('--text-3', 'rgba(255,255,255,.45)');
+  for (let i = 0; i <= 3; i++) {
+    const y = padT + (h * i) / 3;
+    g.beginPath();
+    g.moveTo(padL, y);
+    g.lineTo(padL + w, y);
+    g.globalAlpha = i === 3 ? 0.5 : 0.22;
+    g.stroke();
+    g.globalAlpha = 1;
+    const val = scaleMax * (1 - i / 3);
+    const label = fixedMax ? Math.round(val) + '%' : fmtAxis(val, series[0].unit);
+    g.fillText(label, 2, y + 3);
+  }
+  const n = pts.length;
+  const xAt = i => n === 1 ? padL + w / 2 : padL + (w * i) / (n - 1);
+  const yAt = v => padT + h - (Math.min(scaleMax, Math.max(0, v)) / scaleMax) * h;
+  for (const s of series) {
+    const vals = pts.map(p => {
+      const v = Number(p[s.key]);
+      return Number.isFinite(v) ? v : 0;
+    });
+    // 面积渐变
+    const grad = g.createLinearGradient(0, padT, 0, padT + h);
+    grad.addColorStop(0, hexA(s.color, 0.28));
+    grad.addColorStop(1, hexA(s.color, 0));
+    g.beginPath();
+    g.moveTo(xAt(0), yAt(vals[0]));
+    for (let i = 1; i < n; i++) g.lineTo(xAt(i), yAt(vals[i]));
+    if (n > 1) {
+      g.lineTo(xAt(n - 1), padT + h);
+      g.lineTo(xAt(0), padT + h);
+      g.closePath();
+      g.fillStyle = grad;
+      g.fill();
+    }
+    // 折线
+    g.beginPath();
+    g.moveTo(xAt(0), yAt(vals[0]));
+    for (let i = 1; i < n; i++) g.lineTo(xAt(i), yAt(vals[i]));
+    g.strokeStyle = s.color;
+    g.lineWidth = 1.8;
+    g.lineJoin = 'round';
+    g.stroke();
+    // 末点高亮
+    if (n >= 1) {
+      g.beginPath();
+      g.arc(xAt(n - 1), yAt(vals[n - 1]), 2.4, 0, Math.PI * 2);
+      g.fillStyle = s.color;
+      g.fill();
+    }
+  }
+  // X 轴时间标签（首/中/尾）
+  const fmtT = t => {
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return '';
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':00';
+  };
+  g.fillStyle = cssVar('--text-3', 'rgba(255,255,255,.45)');
+  const marks = n === 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
+  marks.forEach((i, k) => {
+    const label = fmtT(pts[i].t);
+    if (!label) return;
+    g.textAlign = k === 0 ? 'left' : (k === marks.length - 1 && marks.length > 1 ? 'right' : 'center');
+    g.fillText(label, xAt(i), cssH - 4);
+    g.textAlign = 'left';
+  });
+}
+
+function fmtAxis(v, unit) {
+  const u = unit || '';
+  if (!(v > 0)) return '0';
+  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(0) + 'M' + u;
+  if (v >= 1024) return (v / 1024).toFixed(0) + 'K' + u;
+  return Math.round(v) + u;
+}
+
+/* #rrggbb / #rgb → rgba()，用于面积渐变 */
+function hexA(hex, a) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return 'rgba(120,160,255,' + a + ')';
+  let s = m[1];
+  if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+  const r = parseInt(s.slice(0, 2), 16);
+  const gg = parseInt(s.slice(2, 4), 16);
+  const b = parseInt(s.slice(4, 6), 16);
+  return 'rgba(' + r + ',' + gg + ',' + b + ',' + a + ')';
 }
 
 /* 主题 UI 同步（模式 + 强调色 + 密度 + 圆角 + 背景 + 动效） */
@@ -1712,29 +2101,37 @@ function bindSettingsEvents() {
       };
     });
   }
-  // Docker 监控配置：防抖自动保存
-  ['f_dockerEnabled', 'f_dockerUrl'].forEach(id => {
-    const inp = $('#' + id);
-    if (!inp) return;
-    const evt = inp.type === 'checkbox' ? 'change' : 'input';
-    inp.addEventListener(evt, () => {
+  // Docker 监控：开关立即生效（不等防抖，否则界面要切页重进才更新，看起来像开关没反应）
+  const dockerToggle = $('#f_dockerEnabled');
+  if (dockerToggle) {
+    dockerToggle.addEventListener('change', () => applyDockerEnabled(dockerToggle.checked));
+  }
+  // Docker API 地址：文本输入防抖自动保存
+  const dockerUrlInp = $('#f_dockerUrl');
+  if (dockerUrlInp) {
+    dockerUrlInp.addEventListener('input', () => {
       clearTimeout(autoSave._t);
       autoSave._t = setTimeout(() => autoSave(true), 600);
     });
-  });
+  }
   // 允许容器启停：二次确认，避免误触后把 NAS 上的服务停掉
   const allowAct = $('#f_dockerAllowActions');
   if (allowAct) {
-    allowAct.addEventListener('change', () => {
+    allowAct.addEventListener('change', async () => {
       if (allowAct.checked) {
         const ok = window.confirm(
           '开启后，首页的 Docker 容器卡片会出现「启动 / 停止 / 重启 / 暂停」按钮。\n\n' +
           '停止容器会立即中断该服务（如 qBittorrent、MoviePilot、甚至本面板自身）的所有连接。\n\n确定要开启吗？'
         );
-        if (!ok) { allowAct.checked = false; return; }
+        if (!ok) { allowAct.checked = false; showToast('已取消，容器启停仍为关闭'); return; }
       }
+      if (!state.config.docker) state.config.docker = {};
+      state.config.docker.allowActions = allowAct.checked;
       clearTimeout(autoSave._t);
-      autoSave._t = setTimeout(() => autoSave(true), 200);
+      await autoSave(true);
+      showToast(allowAct.checked
+        ? '已开启容器启停：首页容器卡片会出现操作按钮'
+        : '已关闭容器启停：首页不再显示容器操作按钮');
     });
   }
   // MoviePilot 配置：防抖自动保存
@@ -1772,6 +2169,45 @@ function bindSettingsEvents() {
       }
     };
   }
+
+  /* 历史采样 + 告警：勾选类 300ms、数字类 600ms、凭证类 700ms 防抖保存。
+     凭证输入框留空时 autoSave 不会提交该字段，后端 mergeAlerts 保留旧值。 */
+  const debounceSave = (ms) => {
+    clearTimeout(autoSave._t);
+    autoSave._t = setTimeout(() => autoSave(true), ms);
+  };
+  const bindSave = (ids, evt, ms) => {
+    ids.forEach(id => {
+      const inp = $(id);
+      if (!inp) return;
+      inp.addEventListener(evt, () => debounceSave(ms));
+    });
+  };
+  bindSave(['f_historyEnabled'], 'change', 300);
+  bindSave(['f_historyInterval', 'f_historyKeepDays'], 'input', 600);
+  bindSave(['f_alertsEnabled'], 'change', 300);
+  bindSave(['f_alertOfflineTimes', 'f_alertRatioMin', 'f_alertDiskMax', 'f_alertRepeatMin'], 'input', 600);
+  bindSave(['f_alertContainer'], 'change', 300);
+  bindSave(['f_barkEnabled', 'f_tgEnabled', 'f_wecomEnabled', 'f_webhookEnabled'], 'change', 300);
+  bindSave(['f_barkUrl', 'f_tgToken', 'f_tgChatId', 'f_wecomWebhook', 'f_webhookUrl'], 'input', 700);
+  bindSave(['f_webhookMethod'], 'change', 300);
+  const alertToggle = $('#f_alertsEnabled');
+  if (alertToggle) {
+    alertToggle.addEventListener('change', () => {
+      showToast(alertToggle.checked
+        ? '已启用告警，规则命中时会推送到已勾选的渠道'
+        : '已关闭告警，规则只记录不推送');
+    });
+  }
+  const btnSample = $('#btnSampleNow');
+  if (btnSample) btnSample.onclick = sampleHistoryNow;
+  const btnAlertTest = $('#btnAlertTest');
+  if (btnAlertTest) btnAlertTest.onclick = testAlertChannels;
+  const btnAlertCheck = $('#btnAlertCheck');
+  if (btnAlertCheck) btnAlertCheck.onclick = checkAlertsNow;
+  const btnAlertReset = $('#btnAlertReset');
+  if (btnAlertReset) btnAlertReset.onclick = resetAlertState;
+
   // 背景图片：URL 输入（防抖保存）+ 本地上传（canvas 压缩转 dataURL）+ 清除
   const bgInput = $('#f_themeBgImage');
   if (bgInput) {
@@ -2511,6 +2947,57 @@ async function autoSave(quiet) {
     if (mpt && mpt.value.trim()) mpc.apiToken = mpt.value.trim();
   }
   state.config.moviePilot = mpc;
+  // 历史采样配置
+  const hc = state.config.history || {};
+  if (ready) {
+    const he = $('#f_historyEnabled');
+    const hi = $('#f_historyInterval');
+    const hk = $('#f_historyKeepDays');
+    if (he) hc.enabled = he.checked;
+    const iv = hi ? parseInt(hi.value, 10) : NaN;
+    if (Number.isFinite(iv) && iv >= 5 && iv <= 1440) hc.intervalMin = iv;
+    const kd = hk ? parseInt(hk.value, 10) : NaN;
+    if (Number.isFinite(kd) && kd >= 1 && kd <= 365) hc.keepDays = kd;
+  }
+  state.config.history = hc;
+  // 告警配置
+  const alc = state.config.alerts || {};
+  if (ready) {
+    const ae = $('#f_alertsEnabled');
+    if (ae) alc.enabled = ae.checked;
+    const numIn = (sel, min, max) => {
+      const el = $(sel);
+      if (!el) return null;
+      const v = parseFloat(el.value);
+      return Number.isFinite(v) && v >= min && v <= max ? v : null;
+    };
+    const ot = numIn('#f_alertOfflineTimes', 1, 20); if (ot != null) alc.siteOfflineTimes = ot;
+    const rm = numIn('#f_alertRatioMin', 0, 100); if (rm != null) alc.ratioMin = rm;
+    const dm = numIn('#f_alertDiskMax', 0, 100); if (dm != null) alc.diskPctMax = dm;
+    const rp = numIn('#f_alertRepeatMin', 5, 10080); if (rp != null) alc.repeatMin = rp;
+    const ca = $('#f_alertContainer'); if (ca) alc.containerAbnormal = ca.checked;
+    // 渠道：enabled 总是提交；凭证类字段只在用户填了新值时才带上，
+    // 否则后端 mergeAlerts 会把它当成"清空"，把已存的 token / webhook 抹掉
+    const prevCh = alc.channels || {};
+    const chOut = {};
+    const buildCh = (name, enabledSel, fields) => {
+      const e = $(enabledSel);
+      const o = { enabled: e ? e.checked : !!(prevCh[name] && prevCh[name].enabled) };
+      for (const pair of fields) {
+        const el = $(pair[1]);
+        if (!el) continue;
+        const v = (el.value || '').trim();
+        if (v) o[pair[0]] = v;
+      }
+      chOut[name] = o;
+    };
+    buildCh('bark', '#f_barkEnabled', [['url', '#f_barkUrl']]);
+    buildCh('telegram', '#f_tgEnabled', [['botToken', '#f_tgToken'], ['chatId', '#f_tgChatId']]);
+    buildCh('wecom', '#f_wecomEnabled', [['webhook', '#f_wecomWebhook']]);
+    buildCh('webhook', '#f_webhookEnabled', [['url', '#f_webhookUrl'], ['method', '#f_webhookMethod']]);
+    alc.channels = chOut;
+  }
+  state.config.alerts = alc;
   try {
     const resp = await API.saveConfig(state.config);
     // bgClear 是一次性指令：保存成功后清掉，避免后续保存重复删文件
@@ -2518,6 +3005,8 @@ async function autoSave(quiet) {
     // 以服务端返回的真实状态为准（上传/清除后 hasBgImage 由后端说了算）
     if (resp && typeof resp.hasBgImage === 'boolean' && ui.theme) ui.theme.hasBgImage = resp.hasBgImage;
     if (!quiet) showToast('配置已保存到 NAS 本地文件');
+    // 设置页：Docker 组件配置区跟随总开关同步（只重绘这一块，不整页重绘以免打断正在输入的表单）
+    if (state.view === 'settings') loadDockerCompList();
     // 媒体配置变化后刷新首页影视墙
     if (state.view === 'home' && ms.enabled) renderHomeMedia(true);
     if (state.view === 'home' && dc.enabled) renderHomeDocker();

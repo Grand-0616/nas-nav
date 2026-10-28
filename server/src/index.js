@@ -54,10 +54,15 @@ app.use((req, res, next) => {
   return jsonParser(req, res, next);
 });
 app.use(express.static(PUBLIC_DIR, {
-  maxAge: '7d',
-  setHeaders: (res, filePath) => {
-    // HTML 每次回源（否则改了版本号用户也拿不到新页面），静态资源走长缓存
-    if (/\.html?$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  // 静态资源走协商缓存（ETag / Last-Modified）而不是 7 天强缓存：
+  // 原先 maxAge: '7d' 时，升级镜像后 index.html 会回源拿到新版本号，
+  // 但只要发布时忘了改 ?v= 参数，浏览器就会继续用旧的 app.js / style.css，
+  // 用户升级完看到的还是旧界面（本项目自己踩过两次）。改成 0 之后
+  // 文件一变立即生效，代价只是每次多一个 304。
+  maxAge: 0,
+  setHeaders: (res) => {
+    // 全部 no-cache：每次都向服务端确认，命中 ETag 时只回 304
+    res.setHeader('Cache-Control', 'no-cache');
   }
 }));
 

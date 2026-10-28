@@ -1,6 +1,6 @@
 {
   "name": "nas-nav-server",
-  "version": "1.0.52",
+  "version": "1.0.54",
   "description": "NAS 导航监控助手后端服务（自托管 Docker 版）",
   "main": "src/index.js",
   "type": "commonjs",

@@ -213,6 +213,10 @@ const API = {
     return this._req('/api/alerts/check', { method: 'POST' });
   },
 
+  resetAlerts() {
+    return this._req('/api/alerts/reset', { method: 'POST' });
+  },
+
   testDownloader(item) {
     return this._req('/api/downloaders/test', {
       method: 'POST',

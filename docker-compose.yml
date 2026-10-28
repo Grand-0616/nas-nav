@@ -1,7 +1,7 @@
 services:
   nas-nav:
     build: .
-    image: nas-nav:1.0.52
+    image: nas-nav:1.0.54
     container_name: nas-nav
     # 让容器内的进程能访问挂载进来的 docker.sock。
     # 宿主机 docker 组的 GID 用 `getent group docker | cut -d: -f3` 查，填到 DOCKER_GID。

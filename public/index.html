@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="css/style.css?v=1.0.52">
+  <link rel="stylesheet" href="css/style.css?v=1.0.54">
 </head>
 <body>
   <div class="app">
@@ -63,6 +63,7 @@
           <div class="hero-date" id="homeDate">----年--月--日 星期-</div>
         </div>
         <div id="homeMonitor" class="home-monitor"></div>
+        <div id="homeTrend" class="home-trend"></div>
         <div id="homeDocker"></div>
         <div id="homeMedia"></div>
       </section>
@@ -128,7 +129,7 @@
           <div class="settings-global">
             <div class="settings-global-title">飞牛影视（首页影视墙）</div>
             <div class="settings-global-grid">
-              <div class="form-field"><label>启用</label><label class="switch"><input type="checkbox" id="f_mediaEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_mediaEnabled">启用</label><label class="switch"><input type="checkbox" id="f_mediaEnabled"><span class="slider"></span></label></div>
               <div class="form-field full"><label>访问地址</label><input id="f_mediaUrl" placeholder="http://192.168.50.20:5666" autocomplete="off"></div>
               <div class="form-field"><label>用户名</label><input id="f_mediaUser" placeholder="1556707096" autocomplete="off"></div>
               <div class="form-field"><label>密码</label><input id="f_mediaPass" type="password" placeholder="填写新密码；已配置可留空" autocomplete="off"></div>
@@ -138,9 +139,9 @@
           <div class="settings-global">
             <div class="settings-global-title">Docker 容器监控</div>
             <div class="settings-global-grid">
-              <div class="form-field"><label>启用</label><label class="switch"><input type="checkbox" id="f_dockerEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_dockerEnabled">启用</label><label class="switch"><input type="checkbox" id="f_dockerEnabled"><span class="slider"></span></label></div>
               <div class="form-field full"><label>Docker API 地址（留空 = 本机 unix socket）</label><input id="f_dockerUrl" placeholder="留空使用 /var/run/docker.sock，远程可填 http://内网IP:2375" autocomplete="off"></div>
-              <div class="form-field"><label>允许容器启停</label><label class="switch"><input type="checkbox" id="f_dockerAllowActions"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_dockerAllowActions">允许容器启停</label><label class="switch"><input type="checkbox" id="f_dockerAllowActions"><span class="slider"></span></label></div>
             </div>
             <span class="hint" style="color:var(--red,#ef4444)">「允许容器启停」默认关闭。开启后首页容器卡片会出现 启动 / 停止 / 重启 / 暂停 按钮——停止容器会中断该容器提供的服务，请确认后果后再开启。</span>
             <div class="docker-comp-list" id="dockerCompList">
@@ -151,12 +152,55 @@
           <div class="settings-global">
             <div class="settings-global-title">MoviePilot（首页深度看板）</div>
             <div class="settings-global-grid">
-              <div class="form-field"><label>启用</label><label class="switch"><input type="checkbox" id="f_mpEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_mpEnabled">启用</label><label class="switch"><input type="checkbox" id="f_mpEnabled"><span class="slider"></span></label></div>
               <div class="form-field full"><label>访问地址</label><input id="f_mpUrl" placeholder="http://192.168.50.20:3001" autocomplete="off"><span class="hint">MoviePilot 的 Web 访问地址</span></div>
               <div class="form-field"><label>API Token</label><input id="f_mpToken" type="password" placeholder="填写新 Token；已配置可留空" autocomplete="off"></div>
               <div class="form-field"><label>连接测试</label><button class="btn-mini" id="btnMpTest">测试连接</button><span class="mp-test-result" id="mpTestResult"></span></div>
             </div>
             <span class="hint">「MoviePilot」独立页展示媒体库统计、下载器汇总、系统资源、存储与订阅概况，支持搜索影视资源一键订阅、查看已安装插件。API Token 在 MoviePilot 的「设置 - 服务」中获取；填写后点保存即可生效。插件列表缓存 10 分钟，可手动刷新。所有凭证仅保存在 NAS 本地配置文件。</span>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">历史趋势</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label for="f_historyEnabled">启用采样</label><label class="switch"><input type="checkbox" id="f_historyEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_historyInterval">采样间隔（分钟）</label><input id="f_historyInterval" type="number" min="5" max="1440" step="5" autocomplete="off"></div>
+              <div class="form-field"><label for="f_historyKeepDays">保留天数</label><input id="f_historyKeepDays" type="number" min="1" max="365" autocomplete="off"></div>
+              <div class="form-field"><label>立即采样</label><button class="btn-mini" id="btnSampleNow">采样一次</button><span class="mp-test-result" id="sampleResult"></span></div>
+            </div>
+            <span class="hint">后台按间隔自动采样（默认 60 分钟），记录 CPU / 内存 / 磁盘、上传下载速率、站点在线数与分享率。数据按天存为 JSONL，超过保留天数自动清理。首页「系统监控」下方显示趋势曲线。</span>
+          </div>
+          <div class="settings-global">
+            <div class="settings-global-title">告警通知</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label for="f_alertsEnabled">启用告警</label><label class="switch"><input type="checkbox" id="f_alertsEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_alertOfflineTimes">站点离线次数</label><input id="f_alertOfflineTimes" type="number" min="1" max="20" autocomplete="off"></div>
+              <div class="form-field"><label for="f_alertRatioMin">分享率下限</label><input id="f_alertRatioMin" type="number" min="0" max="100" step="0.1" autocomplete="off"></div>
+              <div class="form-field"><label for="f_alertDiskMax">磁盘水位（%）</label><input id="f_alertDiskMax" type="number" min="0" max="100" autocomplete="off"></div>
+              <div class="form-field"><label for="f_alertContainer">容器异常</label><label class="switch"><input type="checkbox" id="f_alertContainer"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_alertRepeatMin">重复间隔（分钟）</label><input id="f_alertRepeatMin" type="number" min="5" max="10080" autocomplete="off"></div>
+            </div>
+            <span class="hint">站点连续离线达到设定次数、分享率低于下限（0 = 不检查）、磁盘使用率超过水位（0 = 不检查）、容器异常时推送。同一问题在重复间隔内不重复推送，恢复后推一条「已恢复」。</span>
+            <div class="settings-global-title" style="margin-top:14px">通知渠道</div>
+            <div class="settings-global-grid">
+              <div class="form-field"><label for="f_barkEnabled">Bark</label><label class="switch"><input type="checkbox" id="f_barkEnabled"><span class="slider"></span></label></div>
+              <div class="form-field full"><label for="f_barkUrl">Bark 推送地址</label><input id="f_barkUrl" placeholder="https://api.day.app/你的KEY" autocomplete="off"></div>
+              <div class="form-field"><label for="f_tgEnabled">Telegram</label><label class="switch"><input type="checkbox" id="f_tgEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_tgToken">Bot Token</label><input id="f_tgToken" type="password" placeholder="已配置可留空" autocomplete="off"></div>
+              <div class="form-field"><label for="f_tgChatId">Chat ID</label><input id="f_tgChatId" placeholder="如 123456789" autocomplete="off"></div>
+              <div class="form-field"><label for="f_wecomEnabled">企业微信</label><label class="switch"><input type="checkbox" id="f_wecomEnabled"><span class="slider"></span></label></div>
+              <div class="form-field full"><label for="f_wecomWebhook">企业微信 Webhook</label><input id="f_wecomWebhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." autocomplete="off"></div>
+              <div class="form-field"><label for="f_webhookEnabled">通用 Webhook</label><label class="switch"><input type="checkbox" id="f_webhookEnabled"><span class="slider"></span></label></div>
+              <div class="form-field"><label for="f_webhookMethod">请求方法</label><select id="f_webhookMethod"><option value="POST">POST</option><option value="PUT">PUT</option></select></div>
+              <div class="form-field full"><label for="f_webhookUrl">Webhook 地址</label><input id="f_webhookUrl" placeholder="http://内网IP:端口/notify" autocomplete="off"></div>
+            </div>
+            <div class="alert-ops-foot">
+              <button class="btn btn-sm" id="btnAlertTest">测试通知</button>
+              <button class="btn btn-sm" id="btnAlertCheck">立即检查</button>
+              <button class="btn btn-sm" id="btnAlertReset">清空告警状态</button>
+              <span class="mp-test-result" id="alertTestResult"></span>
+            </div>
+            <div class="alert-events" id="alertEvents"></div>
+            <span class="hint">「测试通知」向所有已勾选渠道发一条测试消息；「立即检查」按当前规则跑一次判定（告警未启用时只列出命中项、不推送）；「清空告警状态」清除去重记录与事件列表。凭证仅保存在 NAS 本地配置文件。</span>
           </div>
         </div>
 
@@ -315,7 +359,7 @@
     </div>
   </div>
 
-  <script src="js/api.js?v=1.0.52"></script>
-  <script src="js/app.js?v=1.0.52"></script>
+  <script src="js/api.js?v=1.0.54"></script>
+  <script src="js/app.js?v=1.0.54"></script>
 </body>
 </html>
