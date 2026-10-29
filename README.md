@@ -6,28 +6,24 @@
 
 ## 功能
 
-| 板块 | 说明 |
-|---|---|
-| 服务导航 | NAS 上各类服务入口卡片，按分类分组，点击直达 |
+| 板块    | 说明                                                             |
+| ----- | -------------------------------------------------------------- |
+| 服务导航  | NAS 上各类服务入口卡片，按分类分组，点击直达                                       |
 | 下载器监控 | 真实接入 qBittorrent Web API / Transmission RPC，实时速率、任务统计、30 秒自动刷新 |
-| 站点监控 | PT 站点数据，支持 API/passkey 与 Cookie 抓取两种接入方式，60 秒自动刷新 |
-| 飞牛影视墙 | 首页展示飞牛影视（fnOS Media）媒体库统计、继续观看、最近入库海报，点击直达对应剧集/电影 |
-| 设置 | 界面内增删改查 + 测试连接，配置持久化到本地文件 |
+| 站点监控  | PT 站点数据，支持 API/passkey 与 Cookie 抓取两种接入方式，60 秒自动刷新              |
+| 飞牛影视墙 | 首页展示飞牛影视（fnOS Media）媒体库统计、继续观看、最近入库海报，点击直达对应剧集/电影              |
+| 设置    | 界面内增删改查 + 测试连接，配置持久化到本地文件                                      |
 
 ## 快速部署（NAS 上）
 
 1. **准备**：NAS 需安装 Docker 与 Docker Compose（群晖套件中心装 Container Manager 即可）。
-
 2. **获取工程**：将本项目整个文件夹拷贝到 NAS（如 `/volume1/docker/nas-nav`）。
-
 3. **构建并启动**（SSH 到 NAS，或在终端工具中执行）：
    ```bash
    cd /volume1/docker/nas-nav
    docker compose up -d --build
    ```
-
 4. **访问**：浏览器打开 `http://<NAS-IP>:8080`
-
 5. **配置**：打开「设置」页 → 依次配置下载器、站点、服务 → 点「测试连接」验证 → 保存配置。
 
 > 不用 SSH 也可以：群晖 Container Manager 里新建「项目」，指向 `docker-compose.yml` 所在目录即可一键部署。
@@ -35,25 +31,28 @@
 ## 配置说明
 
 ### 下载器
-| 字段 | 说明 |
-|---|---|
-| 类型 | qBittorrent / Transmission |
+
+| 字段       | 说明                                                   |
+| -------- | ---------------------------------------------------- |
+| 类型       | qBittorrent / Transmission                           |
 | WebUI 地址 | 如 `http://192.168.1.100:8080`（qB 默认 8080，TR 默认 9091） |
-| 用户名/密码 | 下载器 WebUI 登录凭证 |
+| 用户名/密码   | 下载器 WebUI 登录凭证                                       |
 
 ### PT 站点（两种接入方式通用适配）
-| 方式 | 字段 | 说明 |
-|---|---|---|
-| API/passkey | API 接口地址 | 如 `https://站点/getuserinfo.php?passkey={passkey}`，`{passkey}` 自动替换 |
-| API/passkey | passkey | 站点提供的密钥 |
-| Cookie 抓取 | 个人资料页地址 | 如 `https://站点/userdetails.php?id=123` |
-| Cookie 抓取 | 站点 Cookie | 浏览器登录站点后，F12 → Network → 复制请求头里的 Cookie |
+
+| 方式          | 字段        | 说明                                                                |
+| ----------- | --------- | ----------------------------------------------------------------- |
+| API/passkey | API 接口地址  | 如 `https://站点/getuserinfo.php?passkey={passkey}`，`{passkey}` 自动替换 |
+| API/passkey | passkey   | 站点提供的密钥                                                           |
+| Cookie 抓取   | 个人资料页地址   | 如 `https://站点/userdetails.php?id=123`                             |
+| Cookie 抓取   | 站点 Cookie | 浏览器登录站点后，F12 → Network → 复制请求头里的 Cookie                           |
 
 > Cookie 会过期，过期后站点显示离线并在卡片上提示，重新复制粘贴即可。
 
 ### 批量导入站点 Cookie（站点多时推荐）
 
 **推荐：Chrome/Edge 扩展版（`extensions/pt-cookie-collector/`）**
+
 > 油猴脚本的 `GM_cookie` API 在 Chrome 上不可用（官方仅支持 Firefox），Chrome 请用扩展版；扩展用 Chrome 官方 `cookies` API 读取完整 Cookie（含 httpOnly），与 Pocket 插件同款技术。
 
 1. 解压 `extensions/pt-cookie-collector/` 文件夹（保持内部结构）。
@@ -63,12 +62,14 @@
 5. 打开面板「设置」→「站点」Tab →「批量导入」，粘贴 JSON → 保存配置。
 
 **备用：Firefox 油猴版（`tools/pt-cookie-collector.user.js`）**
+
 1. Firefox 安装 Tampermonkey，打开脚本文件按提示安装。
 2. 在已登录的 PT 站页面点 Tampermonkey 菜单 → 「1. 收集当前站点 Cookie」，全部收集后「2. 导出全部站点 Cookie」→ 面板「批量导入」粘贴。
 
 > 工具只在你本机浏览器内运行，收集的 Cookie 仅存在于浏览器与剪贴板，粘贴到面板后也只写入 NAS 本地 config，不经过任何第三方。
 
 ### 数据文件
+
 所有配置写入 `./config/config.json`（与 docker-compose.yml 同目录），备份整个 `config` 文件夹即可迁移。
 
 > 主题背景图单独存放在 `config/theme-bg.img`（不占 config.json 体积）；配置文件的权限为 `0600`（仅属主可读，因为含全部凭证）。
@@ -79,6 +80,7 @@
 - **站点解析不出数据**：先点「测试连接」看具体报错；API 模式确认接口返回 XML/JSON，Cookie 模式确认页面是个人资料页且 Cookie 未过期。
 - **换端口**：修改 docker-compose.yml 中 `8080:8080` 的左侧端口，重启即可。
 - **升级**：替换新版本文件后 `docker compose up -d --build`，配置自动保留。
+
 
 ## 版本
 
